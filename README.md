@@ -115,5 +115,26 @@ Running `python run_pipeline.py --only queries` prints six results:
 
 ---
 
-## License
-MIT
+## Screenshots
+
+### Full pipeline run
+![Pipeline](<img width="1100" height="580" alt="01_pipeline_complete" src="https://github.com/user-attachments/assets/91f61ef4-20c5-4a18-a21c-165b6b68863b" />
+)
+
+### Top 10 batsmen — Gold layer output
+![Batsmen](screenshots/02_top_batsmen.png)
+
+### Bowler economy rankings
+![Bowlers](screenshots/03_bowler_economy.png)
+
+### Rolling 3-season team wins
+![Teams](screenshots/04_team_wins.png)
+
+### Toss decision analysis
+![Toss](screenshots/05_toss_analysis.png)
+
+### Delta table transaction history
+![Delta](screenshots/06_delta_history.png)
+
+### All 10 unit tests passing
+![Tests](screenshots/07_tests_passing.png)

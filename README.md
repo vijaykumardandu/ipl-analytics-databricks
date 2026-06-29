@@ -1,119 +1,103 @@
 # ipl-analytics-databricks
 
-A sports analytics pipeline built with PySpark and Delta Lake, processing
-IPL cricket ball-by-ball data through a Bronze → Silver → Gold Medallion
-architecture and producing player rankings, bowling leaderboards, and
-team performance trends.
+A small data pipeline I built to practice PySpark and Delta Lake. It takes IPL
+cricket data (ball-by-ball + match data) and runs it through a Bronze → Silver
+→ Gold setup, ending with player rankings, bowling stats, and team performance
+tables.
 
-Runs fully on a local machine. No Kaggle account or cloud subscription needed —
-synthetic IPL-like data is generated automatically.
+I used AI tools (Claude) to help me write parts of the code and structure the
+project, but I went through it and understand how each stage works — happy to
+walk through any part of it.
+
+No Kaggle account or cloud setup needed to run it — there's a script that
+generates synthetic IPL-like data so anyone can run the whole thing locally.
 
 ---
 
 ## What it does
 
-Processes two datasets (matches and ball-by-ball deliveries) through four stages:
+There are two raw inputs: matches and ball-by-ball deliveries. They go through
+4 stages:
 
-- **Bronze** — raw CSV ingestion into Delta tables, zero transformation
-- **Silver** — null filtering, type casting, seven derived indicator columns
-  (is_boundary, is_six, is_four, is_dot_ball, is_wicket_delivery, is_wide,
-  is_noball), deduplication
-- **Gold** — four analytics tables: batsman career stats with window-based
-  ranking, bowler economy leaderboard, team season wins with rolling totals,
-  match summary with toss analysis
-- **Queries** — six analytical queries printed to console covering top
-  scorers, best economy bowlers, toss win rate, venue scoring averages,
-  and all-rounder identification
-
----
+- **Bronze** — just loads the raw CSVs into Delta tables, no changes
+- **Silver** — cleans nulls, fixes data types, removes duplicates, and adds a
+  few derived columns (is_boundary, is_six, is_four, is_wicket_delivery, etc.)
+  so they're easier to aggregate later
+- **Gold** — builds 4 final tables: batsman career stats, bowler economy
+  stats, team wins per season, and a match summary table
+- **Queries** — a few analytical SQL queries on top of the Gold tables (top
+  scorers, best economy bowlers, toss win rate, etc.)
 
 ## Quick start
 
-```bash
-# 1. Install dependencies (Java 11+ required)
+```
+# Java 11+ required
 pip install -r requirements.txt
 
-# 2. Run the full pipeline
-python run_pipeline.py
-
-# 3. Run a single stage
+python run_pipeline.py              # run everything
 python run_pipeline.py --only bronze
 python run_pipeline.py --only silver
 python run_pipeline.py --only gold
 python run_pipeline.py --only queries
 
-# 4. Run tests
 pytest tests/ -v
 ```
-
----
 
 ## Project structure
 
 ```
 ipl-analytics-databricks/
 ├── config/
-│   └── settings.py          ← all paths and thresholds
+│   └── settings.py          ← paths and thresholds
 ├── src/
-│   ├── generate_data.py     ← synthetic IPL data generator
+│   ├── generate_data.py     ← creates synthetic IPL data
 │   ├── bronze_ingest.py     ← raw CSV → Bronze Delta tables
-│   ├── silver_transform.py  ← cleanse + enrich → Silver Delta tables
-│   ├── gold_analytics.py    ← rankings + aggregates → Gold Delta tables
-│   ├── analytics_queries.py ← 6 SQL-style queries on Gold tables
-│   └── utils.py             ← SparkSession factory
+│   ├── silver_transform.py  ← cleaning + new columns → Silver
+│   ├── gold_analytics.py    ← rankings/aggregates → Gold
+│   ├── analytics_queries.py ← the 6 queries on Gold tables
+│   └── utils.py             ← SparkSession setup
 ├── tests/
-│   └── test_analytics.py    ← 10 unit tests
-├── data/
-│   ├── raw/                 ← generated CSV files (gitignored)
-│   └── delta/               ← Delta Lake tables (gitignored)
-├── run_pipeline.py          ← single entry point
+│   └── test_analytics.py
+├── data/                    ← generated, gitignored
+├── run_pipeline.py
 └── requirements.txt
 ```
 
----
+## Gold tables
 
-## Gold tables produced
+| Table | Contains |
+| --- | --- |
+| batsman_stats | runs, strike rate, batting average, boundary %, rank |
+| bowler_stats | wickets, economy rate, bowling average, dot ball %, rank |
+| team_season_wins | wins per team per season, rolling 3-season total |
+| match_summary | result, toss decision, toss win flag, 1st innings score |
 
-| Table | What it contains |
-|-------|-----------------|
-| batsman_stats | Career runs, strike rate, batting average, boundary %, performance tier, overall rank |
-| bowler_stats | Career wickets, economy rate, bowling average, dot ball %, economy rank |
-| team_season_wins | Wins per team per season, rolling 3-season total, season rank |
-| match_summary | Match result, toss decision, toss win flag, 1st innings score |
+## What I'd improve / what I'm not 100% sure about
 
----
+A few choices in here were defaults rather than things I deeply reasoned
+through, and I want to be upfront about that:
 
-## Key technical decisions
+- I used `RANK()` for the leaderboards instead of just sorting and taking the
+  top N. I know `RANK()` handles ties better, but I haven't pushed on *why*
+  that matters here vs. a simpler approach — still working through that.
+- The rolling window for team wins is set to 3 seasons. That was a default
+  starting point, not something I tuned against the data — 2 or 5 might work
+  just as well or better.
+- The Silver-layer "derived boolean columns" approach (is_six, is_wicket,
+  etc.) made the Gold aggregations simpler to write, but I haven't compared
+  it against doing the same logic with CASE statements directly in Gold.
 
-**Seven boolean indicator columns in Silver** rather than inline CASE expressions
-in Gold — Silver does the row-level classification once so every downstream
-aggregation is a simple SUM of an integer cast, not a repeated conditional.
-This is the pattern used in production Databricks pipelines where the same
-Silver table feeds multiple Gold views.
+## Queries
 
-**Window functions for ranking** rather than sorting and taking top N — RANK()
-over the full dataset preserves ties correctly and produces a stable rank that
-does not shift when new data is added. Used for both batsman overall_rank and
-bowler economy_rank and wickets_rank.
+Running `python run_pipeline.py --only queries` prints:
 
-**Rolling 3-season wins** uses a ROWS BETWEEN 2 PRECEDING AND CURRENT ROW window
-per team — this captures team consistency over time rather than a single-season
-spike, which is more meaningful for long-term performance analysis.
+1. Top 10 run scorers (strike rate, average)
+2. Top 10 bowlers by economy rate
+3. Rolling 3-season win totals per team
+4. Toss decision win rate
+5. Top 5 highest-scoring venues
+6. All-rounders with 500+ runs and 50+ wickets
 
----
-
-## What the queries show
-
-Running `python run_pipeline.py --only queries` prints six results:
-
-1. Top 10 all-time run scorers with strike rate and batting average
-2. Top 10 bowlers by economy rate with dot ball percentage
-3. Rolling 3-season win totals per team (last 5 seasons)
-4. Toss decision win rate — whether batting or fielding first wins more
-5. Top 5 highest-scoring venues by average 1st innings total
-6. All-rounders with 500+ runs AND 50+ wickets
-
----
 
 ## Screenshots
 
